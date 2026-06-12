@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Barfly — Beer Map</title>
+<style>
+
+/* ─────────────────────────────────────────────────────────────
+   BARFLY DESIGN TOKENS
+   Light and dark mode both defined from the root.
+───────────────────────────────────────────────────────────── */
+:root {
+  --bg:          #f9fafb;
+  --bg2:         #f3f4f6;
+  --bg3:         #e5e7eb;
+  --text:        #111827;
+  --text2:       #6b7280;
+  --text3:       #9ca3af;
+  --border:      rgba(0,0,0,0.08);
+  --borderB:     rgba(0,0,0,0.15);
+  --panel:       #ffffff;
+  --amber:       #d97706;
+  --amberL:      #fef3c7;
+  --blue:        #3b82f6;
+  --blueD:       #1d4ed8;
+  --green:       #10b981;
+  --greenD:      #065f46;
+  --greenL:      #d1fae5;
+  --map-empty:   #e5e7eb;
+  --map-avail:   #bfdbfe;
+  --map-started: #3b82f6;
+  --map-done:    #10b981;
+  --city-dot:    #f59e0b;
+  --header-h:    52px;
+  --panel-w:     368px;
+  --r:           10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:          #0f172a;
+    --bg2:         #1e293b;
+    --bg3:         #334155;
+    --text:        #f1f5f9;
+    --text2:       #94a3b8;
+    --text3:       #475569;
+    --border:      rgba(255,255,255,0.07);
+    --borderB:     rgba(255,255,255,0.14);
+    --panel:       #1e293b;
+    --amber:       #f59e0b;
+    --amberL:      #1c1200;
+    --blue:        #60a5fa;
+    --blueD:       #3b82f6;
+    --green:       #34d399;
+    --greenD:      #059669;
+    --greenL:      #064e3b;
+    --map-empty:   #1e293b;
+    --map-avail:   #172554;
+    --map-started: #2563eb;
+    --map-done:    #059669;
+    --city-dot:    #f59e0b;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   RESET
+───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   APP SHELL
+───────────────────────────────────────────────────────────── */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HEADER
+───────────────────────────────────────────────────────────── */
+#hdr {
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 40;
+}
+
+#logo {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+
+#logo span {
+  color: var(--amber);
+}
+
+#tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.tab {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.tab.on {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+}
+
+#stat {
+  font-size: 12px;
+  color: var(--text3);
+  min-width: 80px;
+  text-align: right;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   MAP AREA
+───────────────────────────────────────────────────────────── */
+#mapwrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg2);
+}
+
+#mapsvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   MAP ELEMENTS — fills set by JS, these handle hover/cursor
+───────────────────────────────────────────────────────────── */
+.region {
+  stroke: var(--bg);
+  stroke-width: 0.5px;
+  cursor: default;
+  transition: fill 0.3s ease, opacity 0.15s;
+}
+
+.region.has-data {
+  cursor: pointer;
+}
+
+.region.has-data:hover {
+  opacity: 0.75;
+}
+
+.city-dot {
+  stroke: var(--bg);
+  stroke-width: 1.5px;
+  cursor: pointer;
+  transition: fill 0.3s ease;
+}
+
+.city-dot:hover {
+  opacity: 0.75;
+}
+
+.city-label {
+  font-size: 9px;
+  fill: var(--text2);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   LEGEND
+───────────────────────────────────────────────────────────── */
+#legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+
+.lg-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.lg-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HINT OVERLAY
+───────────────────────────────────────────────────────────── */
+#hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--text2);
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 0.4s;
+  z-index: 5;
+}
+
+#hint.hidden {
+  opacity: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PANEL — Desktop: right sidebar
+───────────────────────────────────────────────────────────── */
+#panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--panel-w);
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 20;
+  overflow: hidden;
+}
+
+#panel.open {
+  transform: translateX(0);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PANEL — Mobile: bottom sheet
+───────────────────────────────────────────────────────────── */
+@media (max-width: 680px) {
+  #panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 74vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+  }
+
+  #panel.open {
+    transform: translateY(0);
+  }
+
+  #legend {
+    display: none;
+  }
+
+  /* Drag handle on mobile */
+  #panel-handle {
+    display: block;
+  }
+}
+
+#panel-handle {
+  display: none;
+  width: 36px;
+  height: 4px;
+  background: var(--borderB);
+  border-radius: 2px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PANEL HEADER
+───────────────────────────────────────────────────────────── */
+#ph {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#ph-name {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+#ph-sub {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 3px;
+}
+
+#ph-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: none;
+  cursor: pointer;
+  color: var(--text2);
+  font-size: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+#ph-close:hover {
+  background: var(--borderB);
+  color: var(--text);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   COMPLETION BANNER
+───────────────────────────────────────────────────────────── */
+#banner {
+  display: none;
+  margin: 8px 16px 0;
+  padding: 9px 14px;
+  background: var(--greenL);
+  color: #064e3b;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  #banner { color: #6ee7b7; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PROGRESS BAR
+───────────────────────────────────────────────────────────── */
+#prog-wrap {
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#prog-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+#prog-label {
+  font-size: 11px;
+  color: var(--text2);
+}
+
+#top3-label {
+  font-size: 11px;
+  color: var(--text2);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.t3-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--borderB);
+  background: transparent;
+  display: inline-block;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.t3-pip.done {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+#prog-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg3);
+  overflow: hidden;
+}
+
+#prog-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--blue);
+  width: 0%;
+  transition: width 0.35s ease, background 0.35s ease;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   BEER LIST
+───────────────────────────────────────────────────────────── */
+#blist {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.beer-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.beer-row:hover {
+  background: var(--bg2);
+}
+
+.beer-row:last-child {
+  border-bottom: none;
+}
+
+.beer-row.tried {
+  background: var(--bg2);
+}
+
+.beer-row.tried .beer-name {
+  text-decoration: line-through;
+  color: var(--text3);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   RANKING BADGE — Gold / Silver / Bronze / Number
+───────────────────────────────────────────────────────────── */
+.rank-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rank-1 { background: #fef3c7; color: #78350f; }
+.rank-2 { background: #f1f5f9; color: #334155; }
+.rank-3 { background: #fef9c3; color: #713f12; }
+.rank-n { background: var(--bg3); color: var(--text3); font-size: 10px; }
+
+@media (prefers-color-scheme: dark) {
+  .rank-1 { background: #1c1200; color: #fbbf24; }
+  .rank-2 { background: #1e293b; color: #94a3b8; }
+  .rank-3 { background: #1a1000; color: #d97706; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   BEER INFO
+───────────────────────────────────────────────────────────── */
+.beer-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.beer-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+
+.beer-meta {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.beer-score {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2);
+  background: var(--bg3);
+  padding: 3px 7px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CHECKBOX
+───────────────────────────────────────────────────────────── */
+.beer-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--borderB);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: transparent;
+  font-size: 11px;
+  font-weight: 900;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.beer-row.tried .beer-check {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   BACKDROP (mobile only)
+───────────────────────────────────────────────────────────── */
+#backdrop {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 15;
+}
+
+#backdrop.show {
+  display: block;
+}
+
+@media (min-width: 681px) {
+  #backdrop {
+    display: none !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SCROLLBAR STYLING
+───────────────────────────────────────────────────────────── */
+#blist::-webkit-scrollbar { width: 4px; }
+#blist::-webkit-scrollbar-track { background: transparent; }
+#blist::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
+
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── HEADER ─────────────────────────────────────────── -->
+  <header id="hdr">
+    <span id="logo">bar<span>fly</span></span>
+    <div id="tabs">
+      <button class="tab on" id="btn-world" onclick="setView('world')">World</button>
+      <button class="tab"    id="btn-us"    onclick="setView('us')">US States</button>
+    </div>
+    <span id="stat">0 visited</span>
+  </header>
+
+  <!-- ── MAP AREA ──────────────────────────────────────── -->
+  <div id="mapwrap">
+    <svg id="mapsvg"></svg>
+
+    <div id="hint">Highlighted regions have beers — click to explore</div>
+
+    <div id="legend">
+      <div class="lg-row"><div class="lg-dot" style="background:var(--map-avail)"></div>Beers logged</div>
+      <div class="lg-row"><div class="lg-dot" style="background:var(--map-started)"></div>Some tried</div>
+      <div class="lg-row"><div class="lg-dot" style="background:var(--map-done)"></div>Top 3 complete</div>
+      <div class="lg-row"><div class="lg-dot" style="background:var(--city-dot);border-radius:50%"></div>City</div>
+    </div>
+
+    <!-- ── PANEL ──────────────────────────────────────── -->
+    <div id="panel">
+      <div id="panel-handle"></div>
+
+      <div id="ph">
+        <div>
+          <div id="ph-name">–</div>
+          <div id="ph-sub">–</div>
+        </div>
+        <button id="ph-close" onclick="closePanel()" aria-label="Close panel">✕</button>
+      </div>
+
+      <div id="banner">All top 3 beers tried — this location is complete.</div>
+
+      <div id="prog-wrap">
+        <div id="prog-row">
+          <span id="prog-label">0 / 0 tried</span>
+          <span id="top3-label">
+            Top 3:
+            <span class="t3-pip" id="pip0"></span>
+            <span class="t3-pip" id="pip1"></span>
+            <span class="t3-pip" id="pip2"></span>
+          </span>
+        </div>
+        <div id="prog-track">
+          <div id="prog-fill"></div>
+        </div>
+      </div>
+
+      <div id="blist"></div>
+    </div>
+
+    <div id="backdrop" onclick="closePanel()"></div>
+  </div>
+
+</div>
+
+<!-- D3 + TopoJSON from CDN — works in any browser, no install needed -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BARFLY BEER DATABASE
+//
+//  HOW TO ADD / REMOVE BEERS
+//  ──────────────────────────
+//  Each location (country, state, city) has a "beers" array.
+//  To ADD a beer, paste a new line inside the beers: [ ... ] array:
+//
+//    { name: "Beer Name", brewery: "Brewery Name", style: "Style", abv: 5.5, score: 4.2 },
+//
+//  To REMOVE a beer, delete its line.
+//  Beers are displayed ranked by score (highest first).
+//  The TOP 3 by score are the beers that turn a location GREEN when all tried.
+//
+//  HOW TO ADD A COUNTRY
+//  ─────────────────────
+//  Add a new entry inside DB.countries. The key MUST exactly match the
+//  country name from the world-atlas topology (Natural Earth names).
+//  If a country isn't highlighting, open the browser console: you'll see
+//  "No DB match:" followed by the exact name you need to use.
+//  Common names: "Czechia", "United States of America", "South Korea",
+//                "Côte d'Ivoire", "eSwatini"
+//
+//  HOW TO ADD A US STATE
+//  ──────────────────────
+//  Add inside DB.states using the full state name ("New York", not "NY").
+//
+//  HOW TO ADD A CITY
+//  ──────────────────
+//  Add inside DB.cities. Set isUS: true for US cities (shown on US States
+//  view) or isUS: false for international cities (shown on World view).
+//  Find coordinates by Googling "[City Name] coordinates".
+//  Format:
+//    "City Name": { lat: 51.5074, lon: -0.1278, isUS: false, beers: [ ... ] },
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DB = {
+
+  // ── COUNTRIES ───────────────────────────────────────────────────────────
+  countries: {
+
+    "United States of America": { beers: [
+      { name: "Pliny the Elder",            brewery: "Russian River Brewing",   style: "Double IPA",            abv: 8.0,  score: 4.8 },
+      { name: "Founder's KBS",              brewery: "Founders Brewing Co.",    style: "Imperial Stout",        abv: 11.8, score: 4.8 },
+      { name: "Heady Topper",               brewery: "The Alchemist",           style: "Double IPA",            abv: 8.0,  score: 4.7 },
+      { name: "Bourbon County Brand Stout", brewery: "Goose Island Beer Co.",   style: "Imperial Stout",        abv: 14.7, score: 4.7 },
+      { name: "Zombie Dust",                brewery: "3 Floyds Brewing",        style: "American Pale Ale",     abv: 6.4,  score: 4.7 },
+    ]},
+
+    "Germany": { beers: [
+      { name: "Weihenstephaner Hefeweissbier", brewery: "Weihenstephan",        style: "Hefeweizen",            abv: 5.4,  score: 4.6 },
+      { name: "Augustiner Lagerbier Hell",     brewery: "Augustiner-Bräu",      style: "Helles Lager",          abv: 5.2,  score: 4.5 },
+      { name: "Schneider Aventinus",           brewery: "Schneider Weisse",     style: "Weizenbock",            abv: 8.2,  score: 4.5 },
+      { name: "Paulaner Salvator",             brewery: "Paulaner Brauerei",    style: "Doppelbock",            abv: 7.9,  score: 4.4 },
+      { name: "Ayinger Celebrator",            brewery: "Ayinger Privatbrauerei", style: "Doppelbock",          abv: 6.7,  score: 4.3 },
+    ]},
+
+    "Belgium": { beers: [
+      { name: "Westvleteren 12",            brewery: "Westvleteren",            style: "Quadrupel",             abv: 10.2, score: 4.9 },
+      { name: "Rochefort 10",               brewery: "Brasserie de Rochefort",  style: "Quadrupel",             abv: 11.3, score: 4.7 },
+      { name: "Cantillon Gueuze",           brewery: "Brasserie Cantillon",     style: "Gueuze",                abv: 5.0,  score: 4.7 },
+      { name: "Orval",                      brewery: "Brasserie d'Orval",       style: "Belgian Pale Ale",      abv: 6.2,  score: 4.5 },
+      { name: "Duvel",                      brewery: "Duvel Moortgat",          style: "Belgian Strong Golden", abv: 8.5,  score: 4.5 },
+    ]},
+
+    "United Kingdom": { beers: [
+      { name: "Thornbridge Jaipur IPA",     brewery: "Thornbridge Brewery",     style: "American IPA",          abv: 5.9,  score: 4.5 },
+      { name: "Fuller's Vintage Ale",       brewery: "Fuller's Brewery",        style: "English Barleywine",    abv: 8.5,  score: 4.4 },
+      { name: "Harvey's Imperial Extra Double Stout", brewery: "Harvey's",     style: "Russian Imperial Stout", abv: 9.0, score: 4.4 },
+      { name: "The Kernel Table Beer",      brewery: "The Kernel Brewery",      style: "Session Pale Ale",      abv: 3.0,  score: 4.3 },
+      { name: "Beavertown Neck Oil",        brewery: "Beavertown Brewery",      style: "Session IPA",           abv: 4.3,  score: 4.2 },
+    ]},
+
+    "Czechia": { beers: [
+      { name: "Únětické Pivo 10°",          brewery: "Únětický Pivovar",        style: "Czech Pale Lager",      abv: 4.1,  score: 4.5 },
+      { name: "Pilsner Urquell",            brewery: "Pilsner Urquell",         style: "Czech Pilsner",         abv: 4.4,  score: 4.5 },
+      { name: "Budvar Original",            brewery: "Budějovický Budvar",      style: "Czech Premium Lager",   abv: 5.0,  score: 4.3 },
+      { name: "Bernard Světlý Ležák",       brewery: "Rodinný Pivovar Bernard", style: "Czech Pilsner",         abv: 5.0,  score: 4.2 },
+      { name: "Kozel Dark",                 brewery: "Pivovar Velké Popovice",  style: "Czech Dark Lager",      abv: 3.8,  score: 4.1 },
+    ]},
+
+    "Japan": { beers: [
+      { name: "Hitachino Nest White Ale",   brewery: "Kiuchi Brewery",          style: "Witbier",               abv: 5.5,  score: 4.4 },
+      { name: "Baird Suruga Bay Imperial IPA", brewery: "Baird Brewing",        style: "Imperial IPA",          abv: 8.5,  score: 4.4 },
+      { name: "Yona Yona Ale",              brewery: "Yoho Brewing",            style: "American Pale Ale",     abv: 5.5,  score: 4.3 },
+      { name: "Shiga Kogen Miyama Blond",   brewery: "Tamamura Honten",         style: "Belgian Blond Ale",     abv: 7.0,  score: 4.3 },
+      { name: "Coedo Beniaka",              brewery: "Coedo Brewery",           style: "Amber Ale",             abv: 7.7,  score: 4.2 },
+    ]},
+
+    "Australia": { beers: [
+      { name: "8 Wired iStout",             brewery: "8 Wired Brewing",         style: "Imperial Stout",        abv: 10.0, score: 4.6 },
+      { name: "Stone & Wood Pacific Ale",   brewery: "Stone & Wood Brewing",    style: "Australian Pale Ale",   abv: 4.4,  score: 4.3 },
+      { name: "Coopers Extra Strong Vintage", brewery: "Coopers Brewery",       style: "Barleywine",            abv: 7.5,  score: 4.3 },
+      { name: "Little Creatures Pale Ale",  brewery: "Little Creatures",        style: "American Pale Ale",     abv: 5.2,  score: 4.2 },
+      { name: "Nail Brewing Antarctic Nail Ale", brewery: "Nail Brewing",       style: "Pale Ale",              abv: 5.0,  score: 4.2 },
+    ]},
+
+    "Mexico": { beers: [
+      { name: "Minerva Tequila Barrel Aged", brewery: "Cervecería Minerva",     style: "Barrel-Aged Strong Ale",abv: 9.5,  score: 4.3 },
+      { name: "Calavera Mexican Imperial Stout", brewery: "Calavera",           style: "Imperial Stout",        abv: 10.0, score: 4.3 },
+      { name: "Cervecería Cosaco Baba Yaga", brewery: "Cosaco Brewing",         style: "Russian Imperial Stout",abv: 9.3,  score: 4.2 },
+      { name: "Agua Mala Blanche de Lorient", brewery: "Agua Mala Brewing",     style: "Witbier",               abv: 5.0,  score: 4.2 },
+      { name: "Bocanegra Amber Ale",        brewery: "Bocanegra",               style: "Amber Ale",             abv: 5.5,  score: 3.9 },
+    ]},
+
+    "Ireland": { beers: [
+      { name: "White Hag Black Boar",       brewery: "The White Hag Brewery",   style: "Imperial Stout",        abv: 10.0, score: 4.5 },
+      { name: "Galway Bay Full Sail",        brewery: "Galway Bay Brewery",      style: "American IPA",          abv: 6.0,  score: 4.3 },
+      { name: "Rascals Juicy IPA",           brewery: "Rascals Brewing",         style: "New England IPA",       abv: 5.0,  score: 4.2 },
+      { name: "O'Hara's Irish Stout",        brewery: "Carlow Brewing",          style: "Irish Dry Stout",       abv: 4.3,  score: 4.2 },
+      { name: "Guinness Draught",            brewery: "Guinness",                style: "Irish Dry Stout",       abv: 4.2,  score: 4.1 },
+    ]},
+
+    "Denmark": { beers: [
+      { name: "Mikkeller Beer Geek Brunch Weasel", brewery: "Mikkeller",        style: "Imperial Stout",        abv: 10.9, score: 4.7 },
+      { name: "To Øl Goliat",               brewery: "To Øl",                   style: "Imperial Stout",        abv: 10.6, score: 4.6 },
+      { name: "Mikkeller Spontanale",        brewery: "Mikkeller",               style: "Lambic",                abv: 6.2,  score: 4.5 },
+      { name: "Evil Twin Molotov Cocktail Heavy", brewery: "Evil Twin Brewing",  style: "Imperial IPA",          abv: 13.5, score: 4.4 },
+      { name: "Amager Bryghus HR. Frederiksen", brewery: "Amager Bryghus",       style: "American Strong Ale",   abv: 9.0,  score: 4.4 },
+    ]},
+
+    "Netherlands": { beers: [
+      { name: "De Molen Hel & Verdoemenis", brewery: "Brouwerij de Molen",      style: "Imperial Stout",        abv: 10.2, score: 4.6 },
+      { name: "Uiltje Big Bad Wolf",         brewery: "Uiltje Brewing",          style: "Barleywine",            abv: 11.0, score: 4.4 },
+      { name: "Brouwerij de Molen Rasputin", brewery: "Brouwerij de Molen",      style: "Russian Imperial Stout",abv: 10.2, score: 4.4 },
+      { name: "Jopen Mooie Nel IPA",         brewery: "Jopen Bier",              style: "American IPA",          abv: 6.5,  score: 4.3 },
+      { name: "Brouwerij 't IJ Zatte",       brewery: "Brouwerij 't IJ",         style: "Tripel",                abv: 8.0,  score: 4.2 },
+    ]},
+
+    "Norway": { beers: [
+      { name: "Nøgne Ø Imperial Stout",      brewery: "Nøgne Ø",                 style: "Imperial Stout",        abv: 9.0,  score: 4.5 },
+      { name: "Haandbryggeriet Dark Force",   brewery: "Haandbryggeriet",         style: "Russian Imperial Stout",abv: 9.0,  score: 4.5 },
+      { name: "Lervig Rye IPA",               brewery: "Lervig Aktiebryggeri",    style: "Rye IPA",               abv: 6.7,  score: 4.4 },
+      { name: "Amundsen Dessert in a Can",    brewery: "Amundsen Brewery",        style: "Pastry Stout",          abv: 10.5, score: 4.3 },
+      { name: "Kinn Vestkyst IPA",            brewery: "Kinn Bryggeri",           style: "West Coast IPA",        abv: 6.0,  score: 4.2 },
+    ]},
+
+    "Sweden": { beers: [
+      { name: "Omnipollo Noa Pecan Mud Cake", brewery: "Omnipollo",              style: "Imperial Stout",        abv: 11.0, score: 4.7 },
+      { name: "Närke Kaggen Stormaktsporter", brewery: "Närke Kulturbryggeri",   style: "Baltic Porter",         abv: 9.5,  score: 4.6 },
+      { name: "Dugges Tropic Thunder",        brewery: "Dugges Ale & Porterbryggeri", style: "Double IPA",       abv: 8.0,  score: 4.4 },
+      { name: "Stigbergets West Coast IPA",   brewery: "Stigbergets Bryggeri",   style: "West Coast IPA",        abv: 7.1,  score: 4.3 },
+      { name: "Spendrups Old Gold",           brewery: "Spendrups Bryggeri",     style: "Strong Lager",          abv: 5.3,  score: 4.0 },
+    ]},
+
+    "Canada": { beers: [
+      { name: "Dieu du Ciel! Péché Mortel",   brewery: "Brasserie Dieu du Ciel!", style: "Imperial Coffee Stout",abv: 9.5,  score: 4.7 },
+      { name: "Unibroue La Fin du Monde",     brewery: "Unibroue",                style: "Tripel",               abv: 9.0,  score: 4.5 },
+      { name: "Mill Street Barley Wine",      brewery: "Mill Street Brewery",     style: "American Barleywine",  abv: 12.0, score: 4.3 },
+      { name: "Muskoka Detour",               brewery: "Muskoka Brewery",         style: "Session IPA",          abv: 4.3,  score: 4.1 },
+      { name: "Beau's Lug Tread",             brewery: "Beau's All Natural Brewing", style: "Kölsch",            abv: 5.2,  score: 4.0 },
+    ]},
+
+    "New Zealand": { beers: [
+      { name: "8 Wired iStout",              brewery: "8 Wired Brewing",          style: "Imperial Stout",       abv: 10.0, score: 4.6 },
+      { name: "Garage Project Death from Above", brewery: "Garage Project",       style: "Double IPA",           abv: 8.0,  score: 4.5 },
+      { name: "Yeastie Boys Pot Kettle Black", brewery: "Yeastie Boys",           style: "Black IPA",            abv: 6.0,  score: 4.3 },
+      { name: "Epic Brewing Armageddon",     brewery: "Epic Brewing",             style: "American IPA",         abv: 6.5,  score: 4.2 },
+      { name: "Panhead Port Road Porter",    brewery: "Panhead Custom Ales",      style: "Porter",               abv: 5.0,  score: 4.1 },
+    ]},
+
+    "Brazil": { beers: [
+      { name: "Wäls Petroleum",              brewery: "Wäls Cervejaria",          style: "Imperial Stout",       abv: 8.6,  score: 4.4 },
+      { name: "Bodebrown Perigosa",          brewery: "Cervejaria Bodebrown",     style: "Imperial Stout",       abv: 9.5,  score: 4.3 },
+      { name: "Colorado Indica IPA",         brewery: "Cervejaria Colorado",      style: "American IPA",         abv: 7.0,  score: 4.2 },
+      { name: "Way Beer American Stout",     brewery: "Way Beer",                 style: "American Stout",       abv: 6.5,  score: 4.2 },
+      { name: "Canto das Minas APA",         brewery: "Cervejaria Canto das Minas", style: "American Pale Ale", abv: 5.5,  score: 4.0 },
+    ]},
+
+    "France": { beers: [
+      { name: "St. Germain Page 24 Réserve Hildegarde Brune", brewery: "Brasserie St. Germain", style: "Bière de Garde", abv: 6.5, score: 4.4 },
+      { name: "Thiriez L'Ambrée d'Esquelbecq", brewery: "Brasserie Thiriez",     style: "Bière de Garde",       abv: 5.5,  score: 4.3 },
+      { name: "Brasserie de Blaugies Darbyste", brewery: "Brasserie de Blaugies", style: "Farmhouse Ale",       abv: 5.8,  score: 4.3 },
+      { name: "La Choulette Ambrée",          brewery: "Brasserie La Choulette", style: "Bière de Garde",       abv: 7.5,  score: 4.2 },
+      { name: "Castelain Ch'Ti Blonde",       brewery: "Brasserie Castelain",    style: "Bière de Garde",       abv: 6.4,  score: 4.0 },
+    ]},
+
+    "Italy": { beers: [
+      { name: "Birrificio Italiano Tipopils", brewery: "Birrificio Italiano",     style: "Italian Pilsner",      abv: 5.1,  score: 4.4 },
+      { name: "Revelation Cat Modus Operandi", brewery: "Revelation Cat",         style: "Imperial Stout",       abv: 10.8, score: 4.4 },
+      { name: "Baladin Super Baladin",         brewery: "Le Baladin",             style: "Belgian Strong Ale",   abv: 8.0,  score: 4.3 },
+      { name: "Birra del Borgo ReAle Extra",   brewery: "Birra del Borgo",        style: "American IPA",         abv: 6.4,  score: 4.2 },
+      { name: "Toccalmatto Zona Cesarini",     brewery: "Birrificio Toccalmatto", style: "American IPA",         abv: 6.5,  score: 4.2 },
+    ]},
+
+    "Spain": { beers: [
+      { name: "Naparbier Joy Division",        brewery: "Naparbier",              style: "American IPA",         abv: 7.0,  score: 4.3 },
+      { name: "Arribes del Duero Black Pearl", brewery: "Arribes del Duero",      style: "Imperial Stout",       abv: 8.5,  score: 4.3 },
+      { name: "Edge Brewing Hoptimista",       brewery: "Edge Brewing",           style: "American IPA",         abv: 6.5,  score: 4.2 },
+      { name: "La Virgen Jamonero",            brewery: "Cervezas La Virgen",     style: "American Pale Ale",    abv: 5.5,  score: 4.0 },
+      { name: "Estrella Damm",                 brewery: "Damm",                   style: "Lager",                abv: 5.4,  score: 3.8 },
+    ]},
+
+    "Argentina": { beers: [
+      { name: "Antares Barley Wine",           brewery: "Antares Cerveza Artesanal", style: "Barleywine",        abv: 10.0, score: 4.4 },
+      { name: "El Bolsón IPA",                 brewery: "Cervecería El Bolsón",   style: "American IPA",         abv: 5.5,  score: 4.2 },
+      { name: "Otro Mundo Black Ale",          brewery: "Cerveza Otro Mundo",     style: "Black Ale",            abv: 5.0,  score: 4.1 },
+      { name: "Patagonia Bohemian Pilsener",   brewery: "Cervecería Patagonia",   style: "Czech-Style Pilsner",  abv: 5.0,  score: 4.0 },
+      { name: "Quilmes Stout",                 brewery: "Quilmes",                style: "Dry Stout",            abv: 4.5,  score: 3.8 },
+    ]},
+
+  },
+
+  // ── US STATES ───────────────────────────────────────────────────────────
+  states: {
+
+    "California": { beers: [
+      { name: "Pliny the Younger",           brewery: "Russian River Brewing",   style: "Triple IPA",           abv: 10.25,score: 4.9 },
+      { name: "Pliny the Elder",             brewery: "Russian River Brewing",   style: "Double IPA",           abv: 8.0,  score: 4.8 },
+      { name: "Sculpin IPA",                 brewery: "Ballast Point Brewing",   style: "American IPA",         abv: 7.0,  score: 4.4 },
+      { name: "Stone Enjoy By IPA",          brewery: "Stone Brewing",           style: "Double IPA",           abv: 9.4,  score: 4.4 },
+      { name: "Lagunitas IPA",               brewery: "Lagunitas Brewing",       style: "American IPA",         abv: 6.2,  score: 4.2 },
+    ]},
+
+    "Vermont": { beers: [
+      { name: "Hill Farmstead Edward",       brewery: "Hill Farmstead Brewery",  style: "American Pale Ale",    abv: 5.2,  score: 4.7 },
+      { name: "Heady Topper",                brewery: "The Alchemist",           style: "Double IPA",           abv: 8.0,  score: 4.7 },
+      { name: "Lawson's Sip of Sunshine",    brewery: "Lawson's Finest Liquids", style: "Double IPA",           abv: 8.0,  score: 4.6 },
+      { name: "Focal Banger",                brewery: "The Alchemist",           style: "American IPA",         abv: 7.0,  score: 4.5 },
+      { name: "Fiddlehead IPA",              brewery: "Fiddlehead Brewing",      style: "American IPA",         abv: 6.2,  score: 4.4 },
+    ]},
+
+    "Michigan": { beers: [
+      { name: "Founder's KBS",               brewery: "Founders Brewing Co.",    style: "Imperial Stout",       abv: 11.8, score: 4.8 },
+      { name: "Founder's CBS",               brewery: "Founders Brewing Co.",    style: "Imperial Stout",       abv: 10.6, score: 4.6 },
+      { name: "Bell's Hopslam Ale",          brewery: "Bell's Brewery",          style: "Double IPA",           abv: 10.0, score: 4.5 },
+      { name: "Bell's Two Hearted Ale",      brewery: "Bell's Brewery",          style: "American IPA",         abv: 7.0,  score: 4.4 },
+      { name: "Dark Horse Plead the 5th",    brewery: "Dark Horse Brewing",      style: "Imperial Stout",       abv: 12.0, score: 4.3 },
+    ]},
+
+    "Colorado": { beers: [
+      { name: "New Belgium La Folie",        brewery: "New Belgium Brewing",     style: "Flanders Red Ale",     abv: 7.0,  score: 4.5 },
+      { name: "Oskar Blues Ten FIDY",        brewery: "Oskar Blues Brewery",     style: "Imperial Stout",       abv: 10.5, score: 4.4 },
+      { name: "Great Divide Yeti",           brewery: "Great Divide Brewing",    style: "Imperial Stout",       abv: 9.5,  score: 4.4 },
+      { name: "Avery Maharaja",              brewery: "Avery Brewing",           style: "Imperial IPA",         abv: 10.24,score: 4.4 },
+      { name: "Odell Brewing Rupture",       brewery: "Odell Brewing",           style: "Double IPA",           abv: 8.0,  score: 4.4 },
+    ]},
+
+    "Illinois": { beers: [
+      { name: "Bourbon County Brand Stout",  brewery: "Goose Island Beer Co.",   style: "Imperial Stout",       abv: 14.7, score: 4.7 },
+      { name: "Perennial Abraxas",           brewery: "Perennial Artisan Ales",  style: "Imperial Stout",       abv: 10.0, score: 4.7 },
+      { name: "Revolution Anti-Hero IPA",    brewery: "Revolution Brewing",      style: "American IPA",         abv: 6.7,  score: 4.3 },
+      { name: "Goose Island Sofie",          brewery: "Goose Island Beer Co.",   style: "Farmhouse Ale",        abv: 6.5,  score: 4.3 },
+      { name: "Half Acre Daisy Cutter",      brewery: "Half Acre Beer",          style: "American Pale Ale",    abv: 5.2,  score: 4.2 },
+    ]},
+
+    "Oregon": { beers: [
+      { name: "Deschutes The Abyss",         brewery: "Deschutes Brewery",       style: "Imperial Stout",       abv: 11.0, score: 4.6 },
+      { name: "Hair of the Dog Adam",        brewery: "Hair of the Dog Brewing", style: "Old Ale",              abv: 10.0, score: 4.6 },
+      { name: "Cascade Kriek",               brewery: "Cascade Brewing",         style: "American Wild Ale",    abv: 7.3,  score: 4.5 },
+      { name: "Boneyard Brewing RPM IPA",    brewery: "Boneyard Beer",           style: "American IPA",         abv: 6.6,  score: 4.4 },
+      { name: "Deschutes Fresh Squeezed",    brewery: "Deschutes Brewery",       style: "American IPA",         abv: 6.4,  score: 4.3 },
+    ]},
+
+    "Texas": { beers: [
+      { name: "Jester King Atrial Rubicite", brewery: "Jester King Brewery",     style: "Fruit Farmhouse Ale",  abv: 5.8,  score: 4.6 },
+      { name: "Real Ale Brewing Sisyphus",   brewery: "Real Ale Brewing",        style: "Barleywine",           abv: 10.5, score: 4.4 },
+      { name: "Jester King Le Petit Prince", brewery: "Jester King Brewery",     style: "Farmhouse Ale",        abv: 2.9,  score: 4.4 },
+      { name: "Peticolas Velvet Hammer",     brewery: "Peticolas Brewing",       style: "Imperial Red Ale",     abv: 9.0,  score: 4.3 },
+      { name: "Saint Arnold Divine Reserve", brewery: "Saint Arnold Brewing",    style: "Annual Special Release",abv: 9.0, score: 4.3 },
+    ]},
+
+    "New York": { beers: [
+      { name: "Tree House Julius",           brewery: "Tree House Brewing",      style: "American IPA",         abv: 6.8,  score: 4.7 },
+      { name: "Other Half All Green Everything", brewery: "Other Half Brewing",  style: "Double IPA",           abv: 8.5,  score: 4.6 },
+      { name: "Grimm Gravity's Rainbow",     brewery: "Grimm Artisanal Ales",    style: "New England IPA",      abv: 6.5,  score: 4.4 },
+      { name: "SingleCut Softcoded",         brewery: "SingleCut Beersmiths",    style: "New England IPA",      abv: 6.0,  score: 4.3 },
+      { name: "Brooklyn Black Chocolate Stout", brewery: "Brooklyn Brewery",     style: "Imperial Stout",       abv: 10.0, score: 4.3 },
+    ]},
+
+    "Pennsylvania": { beers: [
+      { name: "Tired Hands HopHands",        brewery: "Tired Hands Brewing",     style: "American Pale Ale",    abv: 5.5,  score: 4.5 },
+      { name: "Tröegs Nugget Nectar",        brewery: "Tröegs Brewing",          style: "Imperial Amber Ale",   abv: 7.5,  score: 4.5 },
+      { name: "Weyerbacher Sunday Morning Stout", brewery: "Weyerbacher Brewing",style: "Imperial Stout",       abv: 11.0, score: 4.4 },
+      { name: "Victory Prima Pils",          brewery: "Victory Brewing",         style: "German Pilsner",       abv: 5.3,  score: 4.3 },
+      { name: "Yards Philadelphia Pale Ale", brewery: "Yards Brewing",           style: "American Pale Ale",    abv: 4.6,  score: 4.1 },
+    ]},
+
+    "Massachusetts": { beers: [
+      { name: "Tree House Julius",           brewery: "Tree House Brewing",      style: "American IPA",         abv: 6.8,  score: 4.7 },
+      { name: "Trillium Fort Point Pale Ale",brewery: "Trillium Brewing",        style: "American Pale Ale",    abv: 5.9,  score: 4.6 },
+      { name: "Night Shift Whirlpool",       brewery: "Night Shift Brewing",     style: "American Pale Ale",    abv: 5.2,  score: 4.3 },
+      { name: "Mystic Brewery Table Beer",   brewery: "Mystic Brewery",          style: "Farmhouse Saison",     abv: 3.5,  score: 4.2 },
+      { name: "Jack's Abby House Lager",     brewery: "Jack's Abby Craft Lagers",style: "Helles Lager",         abv: 4.4,  score: 4.1 },
+    ]},
+
+    "Wisconsin": { beers: [
+      { name: "Central Waters Peruvian Morning", brewery: "Central Waters Brewing", style: "Imperial Stout",    abv: 9.5,  score: 4.6 },
+      { name: "New Glarus Wisconsin Belgian Red", brewery: "New Glarus Brewing",  style: "Fruit Beer",          abv: 4.0,  score: 4.5 },
+      { name: "Capital Brewery Autumnal Fire",  brewery: "Capital Brewery",       style: "Doppelbock",          abv: 7.8,  score: 4.3 },
+      { name: "New Glarus Spotted Cow",         brewery: "New Glarus Brewing",    style: "Farmhouse Ale",       abv: 4.8,  score: 4.2 },
+      { name: "Lakefront Brewery Fixed Gear",   brewery: "Lakefront Brewery",     style: "American Red Ale",    abv: 5.8,  score: 4.0 },
+    ]},
+
+    "Indiana": { beers: [
+      { name: "3 Floyds Zombie Dust",        brewery: "3 Floyds Brewing",        style: "American Pale Ale",    abv: 6.4,  score: 4.7 },
+      { name: "3 Floyds Dark Lord",          brewery: "3 Floyds Brewing",        style: "Russian Imperial Stout",abv: 15.0,score: 4.6 },
+      { name: "3 Floyds Gumballhead",        brewery: "3 Floyds Brewing",        style: "American Wheat",       abv: 5.6,  score: 4.3 },
+      { name: "Upland Brewing Ard Ri",       brewery: "Upland Brewing",          style: "Wheatwine",            abv: 10.0, score: 4.3 },
+      { name: "Sun King Sunlight Cream Ale", brewery: "Sun King Brewing",        style: "Cream Ale",            abv: 5.0,  score: 4.0 },
+    ]},
+
+    "Washington": { beers: [
+      { name: "Fremont B-Bomb",              brewery: "Fremont Brewing",         style: "Winter Barleywine",    abv: 13.2, score: 4.6 },
+      { name: "Double Mountain Hop Lion",    brewery: "Double Mountain Brewery", style: "American IPA",         abv: 7.0,  score: 4.3 },
+      { name: "Bale Breaker Topcutter IPA",  brewery: "Bale Breaker Brewing",    style: "American IPA",         abv: 6.8,  score: 4.2 },
+      { name: "Georgetown Manny's Pale Ale", brewery: "Georgetown Brewing",      style: "American Pale Ale",    abv: 5.4,  score: 4.1 },
+      { name: "Elysian The Immortal IPA",    brewery: "Elysian Brewing",         style: "American IPA",         abv: 6.3,  score: 4.2 },
+    ]},
+
+    "North Carolina": { beers: [
+      { name: "Foothills Sexual Chocolate",  brewery: "Foothills Brewing",       style: "Imperial Stout",       abv: 9.75, score: 4.6 },
+      { name: "Burial Beer Co. Surf Wax",    brewery: "Burial Beer Co.",         style: "Double IPA",           abv: 8.5,  score: 4.4 },
+      { name: "Wicked Weed Lunatic",         brewery: "Wicked Weed Brewing",     style: "Belgian Tripel",       abv: 8.1,  score: 4.3 },
+      { name: "NoDa Hop Drop 'N Roll",       brewery: "NoDa Brewing",            style: "American IPA",         abv: 6.3,  score: 4.2 },
+      { name: "Duck-Rabbit Milk Stout",      brewery: "Duck-Rabbit Craft Brewery",style: "Milk Stout",          abv: 5.7,  score: 4.2 },
+    ]},
+
+    "Missouri": { beers: [
+      { name: "Perennial Abraxas",           brewery: "Perennial Artisan Ales",  style: "Imperial Stout",       abv: 10.0, score: 4.7 },
+      { name: "Boulevard Tank 7",            brewery: "Boulevard Brewing",       style: "Saison",               abv: 8.5,  score: 4.3 },
+      { name: "Boulevard Smokestack Saison", brewery: "Boulevard Brewing",       style: "Saison",               abv: 7.0,  score: 4.2 },
+      { name: "Urban Chestnut Zwickel",      brewery: "Urban Chestnut Brewing",  style: "Zwickelbier",          abv: 5.0,  score: 4.1 },
+      { name: "4 Hands Contact High",        brewery: "4 Hands Brewing",         style: "American Wheat",       abv: 5.2,  score: 4.0 },
+    ]},
+
+    "Virginia": { beers: [
+      { name: "Hardywood Gingerbread Stout", brewery: "Hardywood Park Craft Brewery", style: "Milk Stout",     abv: 9.2,  score: 4.5 },
+      { name: "The Veil Branded",            brewery: "The Veil Brewing Co.",    style: "American IPA",         abv: 7.5,  score: 4.5 },
+      { name: "O'Connor El Guapo",           brewery: "O'Connor Brewing",        style: "Saison",               abv: 5.8,  score: 4.2 },
+      { name: "Port City Optimal Wit",       brewery: "Port City Brewing",       style: "Witbier",              abv: 5.0,  score: 4.0 },
+      { name: "Starr Hill The Love",         brewery: "Starr Hill Brewery",      style: "Wheat Beer",           abv: 4.5,  score: 4.0 },
+    ]},
+
+  },
+
+  // ── CITIES ──────────────────────────────────────────────────────────────
+  //  isUS: true  → shown on US States view
+  //  isUS: false → shown on World view
+  cities: {
+
+    // ── US CITIES ────────────────────────────────────────────────
+    "Portland, OR":     { lat: 45.523, lon: -122.676, isUS: true, beers: [
+      { name: "Hair of the Dog Adam",        brewery: "Hair of the Dog Brewing", style: "Old Ale",              abv: 10.0, score: 4.6 },
+      { name: "Cascade Kriek",               brewery: "Cascade Brewing",         style: "Fruit Lambic",         abv: 7.3,  score: 4.5 },
+      { name: "Breakside Wanderlust IPA",    brewery: "Breakside Brewery",       style: "American IPA",         abv: 6.2,  score: 4.2 },
+      { name: "Upright Four",                brewery: "Upright Brewing",         style: "Saison",               abv: 4.5,  score: 4.2 },
+      { name: "Commons Flemish Kiss",        brewery: "The Commons Brewery",     style: "Flanders Red Ale",     abv: 5.8,  score: 4.1 },
+    ]},
+
+    "San Diego, CA":    { lat: 32.716, lon: -117.161, isUS: true, beers: [
+      { name: "AleSmith Speedway Stout",     brewery: "AleSmith Brewing",        style: "Imperial Stout",       abv: 12.0, score: 4.7 },
+      { name: "Societe The Pupil",           brewery: "Societe Brewing",         style: "American IPA",         abv: 7.5,  score: 4.4 },
+      { name: "Modern Times Fortunate Islands", brewery: "Modern Times Beer",    style: "Hazy Wheat Ale",       abv: 5.0,  score: 4.3 },
+      { name: "Green Flash West Coast IPA",  brewery: "Green Flash Brewing",     style: "American IPA",         abv: 8.1,  score: 4.3 },
+      { name: "Ballast Point Sculpin IPA",   brewery: "Ballast Point Brewing",   style: "American IPA",         abv: 7.0,  score: 4.4 },
+    ]},
+
+    "Denver, CO":       { lat: 39.739, lon: -104.990, isUS: true, beers: [
+      { name: "Crooked Stave Surette",       brewery: "Crooked Stave",           style: "Farmhouse Ale",        abv: 6.2,  score: 4.5 },
+      { name: "Great Divide Yeti",           brewery: "Great Divide Brewing",    style: "Imperial Stout",       abv: 9.5,  score: 4.4 },
+      { name: "Odell Brewing Rupture",       brewery: "Odell Brewing",           style: "Double IPA",           abv: 8.0,  score: 4.4 },
+      { name: "Breckenridge Vanilla Porter", brewery: "Breckenridge Brewery",    style: "Porter",               abv: 4.7,  score: 4.2 },
+      { name: "Denver Beer Co. Graham Cracker Porter", brewery: "Denver Beer Co.", style: "Robust Porter",     abv: 5.5,  score: 4.0 },
+    ]},
+
+    "Chicago, IL":      { lat: 41.878, lon: -87.630, isUS: true, beers: [
+      { name: "Goose Island Bourbon County Stout", brewery: "Goose Island Beer Co.", style: "Imperial Stout",  abv: 14.7, score: 4.7 },
+      { name: "Revolution Anti-Hero IPA",    brewery: "Revolution Brewing",      style: "American IPA",         abv: 6.7,  score: 4.3 },
+      { name: "Half Acre Daisy Cutter",      brewery: "Half Acre Beer",          style: "American Pale Ale",    abv: 5.2,  score: 4.2 },
+      { name: "Maplewood Fat Pug",           brewery: "Maplewood Brewery",       style: "Oatmeal Milk Stout",   abv: 5.3,  score: 4.1 },
+      { name: "Spiteful Brewing G&Z IPA",    brewery: "Spiteful Brewing",        style: "American IPA",         abv: 7.5,  score: 4.1 },
+    ]},
+
+    "Asheville, NC":    { lat: 35.595, lon: -82.551, isUS: true, beers: [
+      { name: "Burial Beer Co. Surf Wax",    brewery: "Burial Beer Co.",         style: "Double IPA",           abv: 8.5,  score: 4.4 },
+      { name: "Wicked Weed Lunatic",         brewery: "Wicked Weed Brewing",     style: "Belgian Tripel",       abv: 8.1,  score: 4.3 },
+      { name: "Bhramari Brewing Mosaic",     brewery: "Bhramari Brewing",        style: "American IPA",         abv: 6.5,  score: 4.2 },
+      { name: "Hi-Wire Brewing Bed of Nails", brewery: "Hi-Wire Brewing",        style: "Brown Ale",            abv: 5.5,  score: 4.0 },
+      { name: "Catawba White Zombie",        brewery: "Catawba Brewing",         style: "White Ale",            abv: 5.1,  score: 4.0 },
+    ]},
+
+    "San Francisco, CA": { lat: 37.774, lon: -122.419, isUS: true, beers: [
+      { name: "Cellarmaker Coffee & Cigarettes", brewery: "Cellarmaker Brewing", style: "Coffee Stout",         abv: 7.0,  score: 4.5 },
+      { name: "Anchor Steam Beer",           brewery: "Anchor Brewing",          style: "California Common",    abv: 4.9,  score: 4.2 },
+      { name: "21st Amendment Brew Free!",   brewery: "21st Amendment Brewery",  style: "American IPA",         abv: 6.7,  score: 4.2 },
+      { name: "Magnolia Proving Ground IPA", brewery: "Magnolia Brewing",        style: "American IPA",         abv: 6.2,  score: 4.1 },
+      { name: "Almanac Dogpatch Pale Ale",   brewery: "Almanac Beer",            style: "American Pale Ale",    abv: 4.9,  score: 4.0 },
+    ]},
+
+    "Austin, TX":       { lat: 30.267, lon: -97.743, isUS: true, beers: [
+      { name: "Jester King Atrial Rubicite", brewery: "Jester King Brewery",     style: "Fruit Farmhouse Ale",  abv: 5.8,  score: 4.6 },
+      { name: "Adelbert's White Lie",        brewery: "Adelbert's Brewery",      style: "Witbier",              abv: 5.0,  score: 4.2 },
+      { name: "Meanwhile Get Some IPA",      brewery: "Meanwhile Brewing",       style: "American IPA",         abv: 6.5,  score: 4.1 },
+      { name: "Austin Beerworks Pearl Snap", brewery: "Austin Beerworks",        style: "German Pilsner",       abv: 5.3,  score: 4.0 },
+      { name: "Hops & Grain Pale Dark & Handsome", brewery: "Hops & Grain",     style: "Dark Mild",            abv: 3.9,  score: 4.0 },
+    ]},
+
+    "Philadelphia, PA": { lat: 39.952, lon: -75.165, isUS: true, beers: [
+      { name: "Tired Hands HopHands",        brewery: "Tired Hands Brewing",     style: "American Pale Ale",    abv: 5.5,  score: 4.5 },
+      { name: "Dock Street Rye IPA",         brewery: "Dock Street Brewing",     style: "Rye IPA",              abv: 6.5,  score: 4.2 },
+      { name: "Yards Philadelphia Pale Ale", brewery: "Yards Brewing",           style: "American Pale Ale",    abv: 4.6,  score: 4.1 },
+      { name: "Evil Genius Peanut Butter Kisses", brewery: "Evil Genius Beer",   style: "Peanut Butter Porter", abv: 5.2,  score: 4.1 },
+      { name: "Manayunk Brewing Double IPA", brewery: "Manayunk Brewery",        style: "Double IPA",           abv: 9.0,  score: 4.0 },
+    ]},
+
+    "Brooklyn, NY":     { lat: 40.678, lon: -73.944, isUS: true, beers: [
+      { name: "Other Half All Green Everything", brewery: "Other Half Brewing",  style: "Double IPA",           abv: 8.5,  score: 4.6 },
+      { name: "Grimm Gravity's Rainbow",     brewery: "Grimm Artisanal Ales",    style: "New England IPA",      abv: 6.5,  score: 4.4 },
+      { name: "Brooklyn Black Chocolate Stout", brewery: "Brooklyn Brewery",     style: "Imperial Stout",       abv: 10.0, score: 4.3 },
+      { name: "Threes Brewing Vliet",        brewery: "Threes Brewing",          style: "Farmhouse Ale",        abv: 6.2,  score: 4.2 },
+      { name: "KelSo Nut Brown Ale",         brewery: "KelSo of Brooklyn",       style: "American Brown Ale",   abv: 5.5,  score: 4.0 },
+    ]},
+
+    "Seattle, WA":      { lat: 47.606, lon: -122.332, isUS: true, beers: [
+      { name: "Fremont B-Bomb",              brewery: "Fremont Brewing",         style: "Winter Barleywine",    abv: 13.2, score: 4.6 },
+      { name: "Stoup Brewing Citra IPA",     brewery: "Stoup Brewing",           style: "American IPA",         abv: 6.5,  score: 4.2 },
+      { name: "Elysian Avatar Jasmine IPA",  brewery: "Elysian Brewing",         style: "Jasmine IPA",          abv: 6.3,  score: 4.2 },
+      { name: "Georgetown Manny's Pale Ale", brewery: "Georgetown Brewing",      style: "American Pale Ale",    abv: 5.4,  score: 4.1 },
+      { name: "Pike Brewing XXXXX",          brewery: "Pike Brewing",            style: "Extra Stout",          abv: 5.3,  score: 4.1 },
+    ]},
+
+    "Grand Rapids, MI": { lat: 42.963, lon: -85.668, isUS: true, beers: [
+      { name: "Founder's KBS",               brewery: "Founders Brewing Co.",    style: "Imperial Stout",       abv: 11.8, score: 4.8 },
+      { name: "Founder's Breakfast Stout",   brewery: "Founders Brewing Co.",    style: "Oatmeal Stout",        abv: 8.3,  score: 4.6 },
+      { name: "Brewery Vivant Farmhand",     brewery: "Brewery Vivant",          style: "Saison",               abv: 6.0,  score: 4.2 },
+      { name: "Perrin Brewing Black",        brewery: "Perrin Brewing",          style: "Black IPA",            abv: 6.8,  score: 4.2 },
+      { name: "Harmony Galaxy High",         brewery: "Harmony Brewing",         style: "American Pale Ale",    abv: 5.8,  score: 4.1 },
+    ]},
+
+    "Burlington, VT":   { lat: 44.476, lon: -73.212, isUS: true, beers: [
+      { name: "Foam Brewers Foam",           brewery: "Foam Brewers",            style: "New England IPA",      abv: 6.5,  score: 4.2 },
+      { name: "Zero Gravity Green State Lager", brewery: "Zero Gravity Craft Brewery", style: "Helles Lager",  abv: 4.7,  score: 4.1 },
+      { name: "Switchback Ale",              brewery: "Switchback Brewing",      style: "Amber Ale",            abv: 5.0,  score: 4.0 },
+      { name: "Queen City Autumn IPA",       brewery: "Queen City Brewing",      style: "American IPA",         abv: 6.0,  score: 4.0 },
+      { name: "Magic Hat #9",                brewery: "Magic Hat Brewing",       style: "Fruit Beer",           abv: 5.1,  score: 3.8 },
+    ]},
+
+    "Bend, OR":         { lat: 44.058, lon: -121.315, isUS: true, beers: [
+      { name: "Deschutes The Abyss",         brewery: "Deschutes Brewery",       style: "Imperial Stout",       abv: 11.0, score: 4.6 },
+      { name: "Boneyard Brewing RPM IPA",    brewery: "Boneyard Beer",           style: "American IPA",         abv: 6.6,  score: 4.4 },
+      { name: "Deschutes Fresh Squeezed",    brewery: "Deschutes Brewery",       style: "American IPA",         abv: 6.4,  score: 4.3 },
+      { name: "10 Barrel Apocalypse IPA",    brewery: "10 Barrel Brewing",       style: "American IPA",         abv: 6.5,  score: 4.1 },
+      { name: "GoodLife Brewing Sweet As",   brewery: "GoodLife Brewing",        style: "Pacific Pale Ale",     abv: 5.0,  score: 4.0 },
+    ]},
+
+    // ── INTERNATIONAL CITIES ────────────────────────────────────
+    "London":           { lat: 51.507, lon: -0.128, isUS: false, beers: [
+      { name: "Thornbridge Jaipur IPA",      brewery: "Thornbridge Brewery",     style: "American IPA",         abv: 5.9,  score: 4.5 },
+      { name: "Beavertown Neck Oil",         brewery: "Beavertown Brewery",      style: "Session IPA",          abv: 4.3,  score: 4.3 },
+      { name: "The Kernel Table Beer",       brewery: "The Kernel Brewery",      style: "Session Pale Ale",     abv: 3.0,  score: 4.3 },
+      { name: "Fuller's London Porter",      brewery: "Fuller's Brewery",        style: "English Porter",       abv: 5.4,  score: 4.3 },
+      { name: "Meantime London Pale Ale",    brewery: "Meantime Brewing",        style: "English Pale Ale",     abv: 4.3,  score: 4.1 },
+    ]},
+
+    "Munich":           { lat: 48.135, lon: 11.582, isUS: false, beers: [
+      { name: "Weihenstephaner Hefeweissbier", brewery: "Bayerische Staatsbrauerei Weihenstephan", style: "Hefeweizen", abv: 5.4, score: 4.6 },
+      { name: "Augustiner Lagerbier Hell",   brewery: "Augustiner-Bräu",         style: "Helles Lager",         abv: 5.2,  score: 4.5 },
+      { name: "Paulaner Salvator",           brewery: "Paulaner Brauerei",       style: "Doppelbock",           abv: 7.9,  score: 4.4 },
+      { name: "Hofbräu Maibock",             brewery: "Staatliches Hofbräuhaus", style: "Maibock",              abv: 7.2,  score: 4.2 },
+      { name: "Spaten Märzen",               brewery: "Spaten-Franziskaner-Bräu",style: "Märzen / Oktoberfest", abv: 5.2,  score: 4.1 },
+    ]},
+
+    "Brussels":         { lat: 50.850, lon: 4.352, isUS: false, beers: [
+      { name: "Cantillon Gueuze 100% Lambic",brewery: "Brasserie Cantillon",     style: "Gueuze",               abv: 5.0,  score: 4.7 },
+      { name: "3 Fonteinen Oude Geuze",      brewery: "3 Fonteinen",             style: "Gueuze",               abv: 6.0,  score: 4.7 },
+      { name: "Cantillon Rose de Gambrinus", brewery: "Brasserie Cantillon",     style: "Fruit Lambic",         abv: 5.0,  score: 4.6 },
+      { name: "Lindemans Cuvée René",        brewery: "Brouwerij Lindemans",     style: "Gueuze",               abv: 5.5,  score: 4.4 },
+      { name: "Brasserie de la Senne Taras Boulba", brewery: "Brasserie de la Senne", style: "Belgian Pale Ale", abv: 4.5, score: 4.3 },
+    ]},
+
+    "Tokyo":            { lat: 35.676, lon: 139.650, isUS: false, beers: [
+      { name: "Hitachino Nest White Ale",    brewery: "Kiuchi Brewery",          style: "Witbier",              abv: 5.5,  score: 4.4 },
+      { name: "Baird Suruga Bay Imperial IPA", brewery: "Baird Brewing",         style: "Imperial IPA",         abv: 8.5,  score: 4.4 },
+      { name: "Yona Yona Ale",               brewery: "Yoho Brewing",            style: "American Pale Ale",    abv: 5.5,  score: 4.3 },
+      { name: "Shiga Kogen Miyama Blond",    brewery: "Tamamura Honten",         style: "Belgian Blond Ale",    abv: 7.0,  score: 4.3 },
+      { name: "Coedo Beniaka",               brewery: "Coedo Brewery",           style: "Amber Ale",            abv: 7.7,  score: 4.2 },
+    ]},
+
+    "Copenhagen":       { lat: 55.676, lon: 12.568, isUS: false, beers: [
+      { name: "Mikkeller Beer Geek Brunch Weasel", brewery: "Mikkeller",         style: "Imperial Stout",       abv: 10.9, score: 4.7 },
+      { name: "To Øl Goliat",                brewery: "To Øl",                   style: "Imperial Stout",       abv: 10.6, score: 4.6 },
+      { name: "Mikkeller Spontanale",         brewery: "Mikkeller",               style: "Lambic",               abv: 6.2,  score: 4.5 },
+      { name: "Amager Bryghus HR. Frederiksen", brewery: "Amager Bryghus",        style: "American Strong Ale",  abv: 9.0,  score: 4.4 },
+      { name: "Evil Twin Soft DK",            brewery: "Evil Twin Brewing",        style: "American Pale Ale",    abv: 5.0,  score: 4.3 },
+    ]},
+
+    "Montreal":         { lat: 45.501, lon: -73.567, isUS: false, beers: [
+      { name: "Dieu du Ciel! Péché Mortel",  brewery: "Brasserie Dieu du Ciel!", style: "Imperial Coffee Stout",abv: 9.5,  score: 4.7 },
+      { name: "Dieu du Ciel! Moralité",      brewery: "Brasserie Dieu du Ciel!", style: "Double IPA",           abv: 9.0,  score: 4.5 },
+      { name: "Unibroue La Fin du Monde",    brewery: "Unibroue",                style: "Tripel",               abv: 9.0,  score: 4.5 },
+      { name: "Unibroue Maudite",            brewery: "Unibroue",                style: "Belgian Strong Dark",  abv: 8.0,  score: 4.3 },
+      { name: "Pit Caribou La Côtelette",    brewery: "Microbrasserie Pit Caribou", style: "Saison",            abv: 6.5,  score: 4.2 },
+    ]},
+
+    "Melbourne":        { lat: -37.814, lon: 144.963, isUS: false, beers: [
+      { name: "Boatrocker Ramjet",           brewery: "Boatrocker Brewers & Distillers", style: "Barrel-Aged Imperial Stout", abv: 11.0, score: 4.5 },
+      { name: "Stone & Wood Pacific Ale",    brewery: "Stone & Wood Brewing",    style: "Australian Pale Ale",  abv: 4.4,  score: 4.3 },
+      { name: "Fixation Brewing IPA",        brewery: "Fixation Brewing",        style: "American IPA",         abv: 6.8,  score: 4.2 },
+      { name: "Mountain Goat Hightail Ale",  brewery: "Mountain Goat Beer",      style: "Amber Ale",            abv: 4.7,  score: 4.1 },
+      { name: "3 Ravens Ravenous",           brewery: "3 Ravens Brewery",        style: "Pale Ale",             abv: 4.6,  score: 4.0 },
+    ]},
+
+    "Prague":           { lat: 50.075, lon: 14.438, isUS: false, beers: [
+      { name: "Únětické Pivo 10°",           brewery: "Únětický Pivovar",        style: "Czech Pale Lager",     abv: 4.1,  score: 4.5 },
+      { name: "Pilsner Urquell",             brewery: "Pilsner Urquell",         style: "Czech Pilsner",        abv: 4.4,  score: 4.5 },
+      { name: "Pivovar Matuška Raptor",      brewery: "Pivovar Matuška",         style: "American IPA",         abv: 6.5,  score: 4.4 },
+      { name: "Pivovar U Fleků Flek",        brewery: "Pivovar U Fleků",         style: "Czech Dark Lager",     abv: 4.6,  score: 4.3 },
+      { name: "Bernard Světlý Ležák",        brewery: "Rodinný Pivovar Bernard", style: "Czech Pilsner",        abv: 5.0,  score: 4.2 },
+    ]},
+
+    "Oslo":             { lat: 59.913, lon: 10.752, isUS: false, beers: [
+      { name: "Nøgne Ø Imperial Stout",      brewery: "Nøgne Ø",                 style: "Imperial Stout",       abv: 9.0,  score: 4.5 },
+      { name: "Haandbryggeriet Dark Force",   brewery: "Haandbryggeriet",         style: "Russian Imperial Stout",abv: 9.0, score: 4.5 },
+      { name: "Lervig Rye IPA",               brewery: "Lervig Aktiebryggeri",    style: "Rye IPA",              abv: 6.7,  score: 4.4 },
+      { name: "Amundsen Dessert in a Can",    brewery: "Amundsen Brewery",        style: "Pastry Stout",         abv: 10.5, score: 4.3 },
+      { name: "Lindheim Ol Frisk",            brewery: "Lindheim Ølkompani",      style: "Session IPA",          abv: 4.7,  score: 4.0 },
+    ]},
+
+    "Stockholm":        { lat: 59.329, lon: 18.068, isUS: false, beers: [
+      { name: "Omnipollo Noa Pecan Mud Cake", brewery: "Omnipollo",              style: "Imperial Stout",       abv: 11.0, score: 4.7 },
+      { name: "Dugges Tropic Thunder",        brewery: "Dugges Ale & Porterbryggeri", style: "Double IPA",      abv: 8.0,  score: 4.4 },
+      { name: "Stigbergets West Coast IPA",   brewery: "Stigbergets Bryggeri",   style: "West Coast IPA",       abv: 7.1,  score: 4.3 },
+      { name: "Brewski Mr Simcoe",            brewery: "Brewski Brewery",        style: "Session IPA",          abv: 4.0,  score: 4.1 },
+      { name: "Oppigårds Golden Ale",         brewery: "Oppigårds Bryggeri",     style: "Golden Ale",           abv: 4.8,  score: 4.0 },
+    ]},
+
+  }
+
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+let tried = {};          // "locationKey::beerName" → true
+let currentView = 'world';
+let panelKey     = null;
+let panelSection = null;
+
+const STORAGE_KEY = 'barfly_v1';
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) tried = JSON.parse(raw);
+  } catch (e) { tried = {}; }
+}
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tried)); } catch (e) {}
+}
+
+function triedKey(loc, beer)  { return loc + '::' + beer; }
+function isTried(loc, beer)   { return tried[triedKey(loc, beer)] === true; }
+
+function toggleTried(loc, beer) {
+  const k = triedKey(loc, beer);
+  if (tried[k]) delete tried[k]; else tried[k] = true;
+  saveState();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATUS — the four states that drive map color
+// ═══════════════════════════════════════════════════════════════════════════
+//  'none'      → location not in DB
+//  'available' → in DB, zero beers tried
+//  'started'   → 1+ beers tried, but not all top 3
+//  'complete'  → all top 3 (by score) tried
+
+function getStatus(key, section) {
+  const loc = DB[section][key];
+  if (!loc || !loc.beers.length) return 'none';
+
+  const anyTried = loc.beers.some(b => isTried(key, b.name));
+  if (!anyTried) return 'available';
+
+  const top3 = [...loc.beers]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.min(3, loc.beers.length));
+
+  return top3.every(b => isTried(key, b.name)) ? 'complete' : 'started';
+}
+
+// Dark-mode-aware fill colors for SVG (CSS vars don't work in SVG fill attrs)
+function isDark() { return window.matchMedia('(prefers-color-scheme: dark)').matches; }
+
+function regionFill(status) {
+  const d = isDark();
+  switch (status) {
+    case 'available': return d ? '#1e3554' : '#bfdbfe';
+    case 'started':   return d ? '#2563eb' : '#3b82f6';
+    case 'complete':  return d ? '#065f46' : '#10b981';
+    default:          return d ? '#1e293b' : '#e5e7eb';
+  }
+}
+
+function cityFill(status) {
+  const d = isDark();
+  switch (status) {
+    case 'started':  return d ? '#2563eb' : '#3b82f6';
+    case 'complete': return d ? '#065f46' : '#10b981';
+    default:         return '#f59e0b';
+  }
+}
+
+function countVisited() {
+  const locs = new Set(Object.keys(tried).map(k => k.split('::')[0]));
+  return locs.size;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MAP RENDERING
+// ═══════════════════════════════════════════════════════════════════════════
+
+const svg = d3.select('#mapsvg');
+const topoCache = {};  // prevent re-fetching on resize / tab switch
+
+async function fetchTopo(url) {
+  if (!topoCache[url]) topoCache[url] = await fetch(url).then(r => r.json());
+  return topoCache[url];
+}
+
+async function drawMap() {
+  const wrap = document.getElementById('mapwrap');
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+
+  svg.selectAll('*').remove();
+  svg.attr('viewBox', `0 0 ${W} ${H}`);
+
+  if (currentView === 'world') await drawWorld(W, H);
+  else await drawUS(W, H);
+
+  updateStats();
+}
+
+async function drawWorld(W, H) {
+  const world = await fetchTopo('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+  const features = topojson.feature(world, world.objects.countries).features;
+  const proj = d3.geoNaturalEarth1().fitSize([W, H], { type: 'FeatureCollection', features });
+  const path = d3.geoPath().projection(proj);
+
+  // Country paths
+  svg.selectAll('path.region')
+    .data(features)
+    .join('path')
+    .attr('class', d => {
+      const inDB = !!DB.countries[d.properties.name];
+      return 'region' + (inDB ? ' has-data' : '');
+    })
+    .attr('d', path)
+    .attr('fill', d => regionFill(getStatus(d.properties.name, 'countries')))
+    .attr('data-key', d => d.properties.name)
+    .attr('data-sec', 'countries')
+    .on('click', (_, d) => {
+      const name = d.properties.name;
+      if (DB.countries[name]) {
+        openPanel(name, 'countries');
+      } else {
+        // Dev helper: log topology name for unmatched regions
+        console.log('No DB match:', name);
+      }
+    });
+
+  // International city dots
+  Object.entries(DB.cities)
+    .filter(([, c]) => !c.isUS)
+    .forEach(([name, city]) => {
+      const coords = proj([city.lon, city.lat]);
+      if (!coords) return;
+      const [cx, cy] = coords;
+      const status = getStatus(name, 'cities');
+
+      svg.append('circle')
+        .attr('class', 'city-dot')
+        .attr('cx', cx).attr('cy', cy).attr('r', 5)
+        .attr('fill', cityFill(status))
+        .attr('data-key', name)
+        .attr('data-sec', 'cities')
+        .on('click', () => openPanel(name, 'cities'));
+
+      svg.append('text')
+        .attr('class', 'city-label')
+        .attr('x', cx + 7).attr('y', cy + 4)
+        .text(name);
+    });
+}
+
+async function drawUS(W, H) {
+  const us = await fetchTopo('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json');
+  const features = topojson.feature(us, us.objects.states).features;
+  const proj = d3.geoAlbersUsa().fitSize([W, H], { type: 'FeatureCollection', features });
+  const path = d3.geoPath().projection(proj);
+
+  // State paths
+  svg.selectAll('path.region')
+    .data(features)
+    .join('path')
+    .attr('class', d => {
+      const inDB = !!DB.states[d.properties.name];
+      return 'region' + (inDB ? ' has-data' : '');
+    })
+    .attr('d', path)
+    .attr('fill', d => regionFill(getStatus(d.properties.name, 'states')))
+    .attr('data-key', d => d.properties.name)
+    .attr('data-sec', 'states')
+    .on('click', (_, d) => {
+      if (DB.states[d.properties.name]) openPanel(d.properties.name, 'states');
+    });
+
+  // US city dots
+  Object.entries(DB.cities)
+    .filter(([, c]) => c.isUS)
+    .forEach(([name, city]) => {
+      const coords = proj([city.lon, city.lat]);
+      if (!coords) return;
+      const [cx, cy] = coords;
+      const status = getStatus(name, 'cities');
+
+      svg.append('circle')
+        .attr('class', 'city-dot')
+        .attr('cx', cx).attr('cy', cy).attr('r', 5)
+        .attr('fill', cityFill(status))
+        .attr('data-key', name)
+        .attr('data-sec', 'cities')
+        .on('click', () => openPanel(name, 'cities'));
+
+      svg.append('text')
+        .attr('class', 'city-label')
+        .attr('x', cx + 7).attr('y', cy + 4)
+        .text(name.split(',')[0]);
+    });
+}
+
+// Refresh all colors on the current map without full redraw
+function refreshMapColors() {
+  svg.selectAll('[data-key][data-sec]').each(function() {
+    const key = this.getAttribute('data-key');
+    const sec = this.getAttribute('data-sec');
+    const status = getStatus(key, sec);
+    const el = d3.select(this);
+    el.attr('fill', this.tagName === 'circle' ? cityFill(status) : regionFill(status));
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  VIEW SWITCHING
+// ═══════════════════════════════════════════════════════════════════════════
+
+function setView(v) {
+  currentView = v;
+  document.getElementById('btn-world').classList.toggle('on', v === 'world');
+  document.getElementById('btn-us').classList.toggle('on', v === 'us');
+  closePanel(false); // close silently, no animation needed
+  drawMap();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+
+function openPanel(key, section) {
+  panelKey     = key;
+  panelSection = section;
+
+  // Dismiss hint after first interaction
+  document.getElementById('hint').classList.add('hidden');
+
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('backdrop').classList.add('show');
+
+  renderPanel();
+}
+
+function closePanel(animate = true) {
+  panelKey     = null;
+  panelSection = null;
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('backdrop').classList.remove('show');
+}
+
+function renderPanel() {
+  if (!panelKey || !panelSection) return;
+
+  const loc  = DB[panelSection][panelKey];
+  const type = panelSection === 'countries' ? 'Country' :
+               panelSection === 'states'    ? 'US State' : 'City';
+
+  // Sort beers by score descending
+  const sorted = [...loc.beers].sort((a, b) => b.score - a.score);
+  const top3   = sorted.slice(0, Math.min(3, sorted.length));
+  const total  = sorted.length;
+  const triedCount = sorted.filter(b => isTried(panelKey, b.name)).length;
+
+  // Header
+  document.getElementById('ph-name').textContent = panelKey;
+  document.getElementById('ph-sub').textContent  = `${type} · ${total} beer${total !== 1 ? 's' : ''} logged`;
+
+  // Progress bar
+  const pct = total > 0 ? (triedCount / total) * 100 : 0;
+  document.getElementById('prog-label').textContent = `${triedCount} / ${total} tried`;
+  document.getElementById('prog-fill').style.width = pct + '%';
+
+  const isComplete = top3.every(b => isTried(panelKey, b.name));
+  document.getElementById('prog-fill').style.background = isComplete ? '#10b981' : '#3b82f6';
+
+  // Completion banner
+  document.getElementById('banner').style.display = isComplete ? 'block' : 'none';
+
+  // Top 3 pips
+  for (let i = 0; i < 3; i++) {
+    const pip = document.getElementById('pip' + i);
+    const beer = top3[i];
+    pip.classList.toggle('done', !!beer && isTried(panelKey, beer.name));
+    pip.style.display = beer ? '' : 'none';
+  }
+
+  // Beer list
+  const blist = document.getElementById('blist');
+  blist.innerHTML = '';
+
+  sorted.forEach((beer, i) => {
+    const isTr = isTried(panelKey, beer.name);
+    const row  = document.createElement('div');
+    row.className = 'beer-row' + (isTr ? ' tried' : '');
+    row.setAttribute('data-beer', beer.name);
+
+    // Rank badge
+    const badge = document.createElement('div');
+    badge.className = 'rank-badge ' + (i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-n');
+    badge.textContent = i + 1;
+    row.appendChild(badge);
+
+    // Info block
+    const info = document.createElement('div');
+    info.className = 'beer-info';
+
+    const name = document.createElement('div');
+    name.className = 'beer-name';
+    name.textContent = beer.name;
+    info.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'beer-meta';
+    meta.textContent = `${beer.brewery} · ${beer.style} · ${beer.abv}%`;
+    info.appendChild(meta);
+
+    row.appendChild(info);
+
+    // Score
+    const score = document.createElement('div');
+    score.className = 'beer-score';
+    score.textContent = beer.score.toFixed(1);
+    row.appendChild(score);
+
+    // Checkbox
+    const chk = document.createElement('div');
+    chk.className = 'beer-check';
+    chk.textContent = isTr ? '✓' : '';
+    row.appendChild(chk);
+
+    // Toggle on click
+    row.addEventListener('click', () => {
+      toggleTried(panelKey, beer.name);
+      refreshMapColors();
+      updateStats();
+      renderPanel(); // re-render panel to update progress
+    });
+
+    blist.appendChild(row);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateStats() {
+  const n = countVisited();
+  document.getElementById('stat').textContent = n === 0 ? '0 visited' : `${n} visited`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  RESIZE — debounced, uses cached topology
+// ═══════════════════════════════════════════════════════════════════════════
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawMap, 180);
+});
+
+// Re-apply colors when system color scheme changes (dark/light switch)
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  refreshMapColors();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════════════════
+
+loadState();
+drawMap();
+</script>
+</body>
+</html>
